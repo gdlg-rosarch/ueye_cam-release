@@ -2,6 +2,13 @@
 Changelog for package ueye_cam
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
+1.0.12 (2015-09-28)
+-------------------
+* fixed binning IS_INVALID_BUFFER_SIZE bug
+* Modified nodelet to use camera timestamp instead of wall clock time
+* Fix for new upstream dir name on ARM
+* Contributors: Alejandro Merello, Anqi Xu, Scott K Logan
+
 1.0.11 (2015-08-17)
 -------------------
 * updated barebones IDS drivers to 4.61
