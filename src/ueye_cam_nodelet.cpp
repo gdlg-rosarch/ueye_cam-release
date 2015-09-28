@@ -675,8 +675,8 @@ INT UEyeCamNodelet::syncCamConfig(string dft_mode_str) {
   
   // (Re-)populate ROS image message
   ros_image_.header.frame_id = "/" + frame_name_;
-  ros_image_.height = cam_params_.image_height / (cam_params_.sensor_scaling * cam_params_.subsampling * cam_params_.binning);
-  ros_image_.width = cam_params_.image_width / (cam_params_.sensor_scaling * cam_params_.subsampling * cam_params_.binning);
+  ros_image_.height = cam_params_.image_height / (cam_params_.sensor_scaling * cam_params_.subsampling);
+  ros_image_.width = cam_params_.image_width / (cam_params_.sensor_scaling * cam_params_.subsampling);
   ros_image_.encoding = cam_params_.color_mode;
   ros_image_.step = cam_buffer_pitch_;
   ros_image_.is_bigendian = 0;
@@ -949,6 +949,7 @@ void UEyeCamNodelet::frameGrabLoop() {
       INT eventTimeout = (cam_params_.auto_frame_rate || cam_params_.ext_trigger_mode) ?
           (INT) 2000 : (INT) (1000.0 / cam_params_.frame_rate * 2);
       if (processNextFrame(eventTimeout) != NULL) {
+        ros_image_.header.stamp = ros_cam_info_.header.stamp = getImageTimestamp();
         // Process new frame
 #ifdef DEBUG_PRINTOUT_FRAME_GRAB_RATES
         grabbedFrameCount++;
@@ -999,7 +1000,6 @@ void UEyeCamNodelet::frameGrabLoop() {
           }
           ros_image_.step = expected_row_stride; // fix the row stepsize/stride value
         }
-        ros_image_.header.stamp = ros_cam_info_.header.stamp = ros::Time::now();
         ros_image_.header.seq = ros_cam_info_.header.seq = ros_frame_count_++;
         ros_image_.header.frame_id = ros_cam_info_.header.frame_id;
 
@@ -1053,6 +1053,21 @@ bool UEyeCamNodelet::saveIntrinsicsFile() {
     return true;
   }
   return false;
+}
+
+ros::Time UEyeCamNodelet::getImageTimestamp() {
+  UEYETIME utime;
+  if(getTimestamp(&utime)) {
+    struct tm tm;
+    tm.tm_year = utime.wYear - 1900;
+    tm.tm_mon = utime.wMonth - 1;
+    tm.tm_mday = utime.wDay;
+    tm.tm_hour = utime.wHour;
+    tm.tm_min = utime.wMinute;
+    tm.tm_sec = utime.wSecond;
+    return ros::Time(mktime(&tm),utime.wMilliseconds*1e6);
+  }
+  return ros::Time::now();
 }
 // TODO: 0 bug where nodelet locks and requires SIGTERM when there are still subscribers (need to find where does code hang)
 
