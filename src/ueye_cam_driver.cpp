@@ -1074,9 +1074,9 @@ INT UEyeCamDriver::reallocateCamBuffer() {
 
   // Allocate new memory section for IDS driver to use as frame buffer
   INT frameWidth = cam_aoi_.s32Width /
-    (cam_sensor_scaling_rate_ * cam_subsampling_rate_ * cam_binning_rate_);
+    (cam_sensor_scaling_rate_ * cam_subsampling_rate_);
   INT frameHeight = cam_aoi_.s32Height /
-    (cam_sensor_scaling_rate_ * cam_subsampling_rate_ * cam_binning_rate_);
+    (cam_sensor_scaling_rate_ * cam_subsampling_rate_);
   if ((is_err = is_AllocImageMem(cam_handle_, frameWidth, frameHeight,
       bits_per_pixel_, &cam_buffer_, &cam_buffer_id_)) != IS_SUCCESS) {
     ERROR_STREAM("Failed to allocate " << frameWidth << " x " << frameHeight <<
@@ -1284,5 +1284,13 @@ const char* UEyeCamDriver::colormode2str(INT mode) {
 #undef CASE
 }
 
+bool UEyeCamDriver::getTimestamp(UEYETIME *timestamp) {
+  UEYEIMAGEINFO ImageInfo;
+  if(is_GetImageInfo (cam_handle_, cam_buffer_id_, &ImageInfo, sizeof (ImageInfo)) == IS_SUCCESS) {
+    *timestamp = ImageInfo.TimestampSystem;
+    return true;
+  }
+  return false;
+}
 
 } // namespace ueye_cam
