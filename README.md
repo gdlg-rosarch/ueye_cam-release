@@ -1,3 +1,26 @@
+## ueye_cam (kinetic) - 1.0.13-0
+
+The packages in the `ueye_cam` repository were released into the `kinetic` distro by running `/usr/bin/bloom-release ueye_cam --track kinetic --rosdistro kinetic` on `Fri, 13 May 2016 16:53:02 -0000`
+
+The `ueye_cam` package was released.
+
+Version of package(s) in repository `ueye_cam`:
+
+- upstream repository: https://github.com/anqixu/ueye_cam.git
+- release repository: unknown
+- rosdistro version: `null`
+- old version: `null`
+- new version: `1.0.13-0`
+
+Versions of tools used:
+
+- bloom version: `0.5.21`
+- catkin_pkg version: `0.2.10`
+- rosdep version: `0.11.4`
+- rosdistro version: `0.4.7`
+- vcstools version: `0.1.38`
+
+
 ## ueye_cam (jade) - 1.0.13-0
 
 The packages in the `ueye_cam` repository were released into the `jade` distro by running `/usr/bin/bloom-release ueye_cam --track jade --rosdistro jade` on `Fri, 13 May 2016 16:48:12 -0000`
