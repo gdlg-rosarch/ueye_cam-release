@@ -1,3 +1,26 @@
+## ueye_cam (indigo) - 1.0.14-1
+
+The packages in the `ueye_cam` repository were released into the `indigo` distro by running `/usr/bin/bloom-release ueye_cam --track indigo --rosdistro indigo` on `Thu, 26 May 2016 19:55:16 -0000`
+
+The `ueye_cam` package was released.
+
+Version of package(s) in repository `ueye_cam`:
+
+- upstream repository: https://github.com/anqixu/ueye_cam.git
+- release repository: https://github.com/anqixu/ueye_cam-release.git
+- rosdistro version: `1.0.13-0`
+- old version: `1.0.14-0`
+- new version: `1.0.14-1`
+
+Versions of tools used:
+
+- bloom version: `0.5.21`
+- catkin_pkg version: `0.2.10`
+- rosdep version: `0.11.5`
+- rosdistro version: `0.4.7`
+- vcstools version: `0.1.38`
+
+
 ## ueye_cam (indigo) - 1.0.14-0
 
 The packages in the `ueye_cam` repository were released into the `indigo` distro by running `/usr/bin/bloom-release ueye_cam --track indigo --rosdistro indigo` on `Thu, 26 May 2016 19:40:18 -0000`
