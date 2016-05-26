@@ -80,7 +80,9 @@ UEyeCamNodelet::UEyeCamNodelet() :
     ros_frame_count_(0),
     cam_topic_(DEFAULT_CAMERA_TOPIC),
     cam_intr_filename_(""),
-    cam_params_filename_("") {
+    cam_params_filename_(""),
+    init_publish_time_(0),
+    prev_output_frame_idx_(0) {
   cam_params_.image_width = DEFAULT_IMAGE_WIDTH;
   cam_params_.image_height = DEFAULT_IMAGE_HEIGHT;
   cam_params_.image_left = -1;
@@ -102,6 +104,7 @@ UEyeCamNodelet::UEyeCamNodelet() :
   cam_params_.white_balance_blue_offset = 0;
   cam_params_.auto_frame_rate = false;
   cam_params_.frame_rate = DEFAULT_FRAME_RATE;
+  cam_params_.output_rate = 0; // disable by default
   cam_params_.pixel_clock = DEFAULT_PIXEL_CLOCK;
   cam_params_.ext_trigger_mode = false;
   cam_params_.flash_delay = 0;
@@ -159,6 +162,7 @@ void UEyeCamNodelet::onInit() {
     ERROR_STREAM("Failed to initialize [" << cam_name_ << "]");
     return;
   }
+
   ros_cfg_->setCallback(f); // this will call configCallback, which will configure the camera's parameters
   startFrameGrabber();
   INFO_STREAM(
@@ -187,6 +191,7 @@ void UEyeCamNodelet::onInit() {
       "Ext Trigger Mode:\t" << cam_params_.ext_trigger_mode << endl <<
       "Auto Frame Rate:\t" << cam_params_.auto_frame_rate << endl <<
       "Frame Rate (Hz):\t" << cam_params_.frame_rate << endl <<
+      "Output Rate (Hz):\t" << cam_params_.output_rate << endl <<
       "Pixel Clock (MHz):\t" << cam_params_.pixel_clock << endl <<
       "Mirror Image Upside Down:\t" << cam_params_.flip_upd << endl <<
       "Mirror Image Left Right:\t" << cam_params_.flip_lr << endl
@@ -431,6 +436,18 @@ INT UEyeCamNodelet::parseROSParams(ros::NodeHandle& local_nh) {
       }
     }
   }
+  if (local_nh.hasParam("output_rate")) {
+    local_nh.getParam("output_rate", cam_params_.output_rate);
+    if (cam_params_.output_rate < 0.0) {
+      WARN_STREAM("Invalid requested output rate for [" << cam_name_ << "]: " <<
+        cam_params_.output_rate <<
+        "; disable publisher throttling by default");
+        cam_params_.output_rate = 0;
+    } else {
+      cam_params_.output_rate = std::min(cam_params_.frame_rate, cam_params_.output_rate);
+      // hasNewParams = true; // No need to re-allocate buffer memory or reconfigure camera parameters
+    }
+  }
   if (local_nh.hasParam("pixel_clock")) {
     local_nh.getParam("pixel_clock", cam_params_.pixel_clock);
     if (cam_params_.pixel_clock != prevCamParams.pixel_clock) {
@@ -461,10 +478,10 @@ INT UEyeCamNodelet::parseROSParams(ros::NodeHandle& local_nh) {
     // Configure color mode, resolution, and subsampling rate
     // NOTE: this batch of configurations are mandatory, to ensure proper allocation of local frame buffer
     if ((is_err = setColorMode(cam_params_.color_mode, false)) != IS_SUCCESS) return is_err;
-    if ((is_err = setResolution(cam_params_.image_width, cam_params_.image_height,
-        cam_params_.image_left, cam_params_.image_top, false)) != IS_SUCCESS) return is_err;
     if ((is_err = setSubsampling(cam_params_.subsampling, false)) != IS_SUCCESS) return is_err;
     if ((is_err = setBinning(cam_params_.binning, false)) != IS_SUCCESS) return is_err;
+    if ((is_err = setResolution(cam_params_.image_width, cam_params_.image_height,
+        cam_params_.image_left, cam_params_.image_top, false)) != IS_SUCCESS) return is_err;
     if ((is_err = setSensorScaling(cam_params_.sensor_scaling, false)) != IS_SUCCESS) return is_err;
 
     // Force synchronize settings and re-allocate frame buffer for redundancy
@@ -597,6 +614,18 @@ void UEyeCamNodelet::configCallback(ueye_cam::UEyeCamConfig& config, uint32_t le
       config.frame_rate != cam_params_.frame_rate) {
     if (setFrameRate(config.auto_frame_rate, config.frame_rate) != IS_SUCCESS) return;
   }
+  
+  if (config.output_rate != cam_params_.output_rate) {
+    if (!config.auto_frame_rate) {
+      config.output_rate = std::min(config.output_rate, config.frame_rate);
+    } // else, auto-fps is enabled, so don't bother checking validity of user-specified config.output_rate
+
+    // Reset reference time for publisher throttle
+    output_rate_mutex_.lock();
+    init_publish_time_ = ros::Time(0);
+    prev_output_frame_idx_ = 0;
+    output_rate_mutex_.unlock();
+  }
 
   if (config.auto_exposure != cam_params_.auto_exposure ||
       config.exposure != cam_params_.exposure) {
@@ -675,8 +704,8 @@ INT UEyeCamNodelet::syncCamConfig(string dft_mode_str) {
   
   // (Re-)populate ROS image message
   ros_image_.header.frame_id = "/" + frame_name_;
-  ros_image_.height = cam_params_.image_height / (cam_params_.sensor_scaling * cam_params_.subsampling);
-  ros_image_.width = cam_params_.image_width / (cam_params_.sensor_scaling * cam_params_.subsampling);
+  ros_image_.height = cam_params_.image_height/ (cam_params_.sensor_scaling);
+  ros_image_.width = cam_params_.image_width/ (cam_params_.sensor_scaling);
   ros_image_.encoding = cam_params_.color_mode;
   ros_image_.step = cam_buffer_pitch_;
   ros_image_.is_bigendian = 0;
@@ -891,6 +920,12 @@ void UEyeCamNodelet::frameGrabLoop() {
     // and stop live video mode if ROS image topic no longer has any subscribers
     currNumSubscribers = ros_cam_pub_.getNumSubscribers();
     if (currNumSubscribers > 0 && prevNumSubscribers <= 0) {
+      // Reset reference time to prevent throttling first frame
+      output_rate_mutex_.lock();
+      init_publish_time_ = ros::Time(0);
+      prev_output_frame_idx_ = 0;
+      output_rate_mutex_.unlock();
+      
       if (cam_params_.ext_trigger_mode) {
         if (setExtTriggerMode() != IS_SUCCESS) {
           ERROR_STREAM("Shutting down driver nodelet for [" << cam_name_ << "]");
@@ -949,6 +984,7 @@ void UEyeCamNodelet::frameGrabLoop() {
       INT eventTimeout = (cam_params_.auto_frame_rate || cam_params_.ext_trigger_mode) ?
           (INT) 2000 : (INT) (1000.0 / cam_params_.frame_rate * 2);
       if (processNextFrame(eventTimeout) != NULL) {
+        // Initialize/compute frame timestamp based on clock tick value from camera
         if (init_ros_time_.isZero()) {
           if(getClockTick(&init_clock_tick_)) {
             init_ros_time_ = getImageTimestamp();
@@ -959,6 +995,7 @@ void UEyeCamNodelet::frameGrabLoop() {
           }
         }
         ros_image_.header.stamp = ros_cam_info_.header.stamp = getImageTickTimestamp();
+        
         // Process new frame
 #ifdef DEBUG_PRINTOUT_FRAME_GRAB_RATES
         grabbedFrameCount++;
@@ -982,8 +1019,27 @@ void UEyeCamNodelet::frameGrabLoop() {
 
         if (!frame_grab_alive_ || !ros::ok()) break;
         
-        ros_cam_info_.width = cam_params_.image_width / cam_sensor_scaling_rate_ / cam_subsampling_rate_ / cam_binning_rate_;
-        ros_cam_info_.height = cam_params_.image_height / cam_sensor_scaling_rate_ / cam_subsampling_rate_ / cam_binning_rate_;
+        // Throttle publish rate
+        bool throttle_curr_frame = false;
+        output_rate_mutex_.lock();
+        if (!cam_params_.ext_trigger_mode && cam_params_.output_rate > 0) {
+          if (init_publish_time_.is_zero()) { // Set reference time 
+            init_publish_time_ = ros_image_.header.stamp;
+          } else {
+            double time_elapsed = (ros_image_.header.stamp - init_publish_time_).toSec();
+            uint64_t curr_output_frame_idx = std::floor(time_elapsed * cam_params_.output_rate);
+            if (curr_output_frame_idx <= prev_output_frame_idx_) {
+              throttle_curr_frame = true;
+            } else {
+              prev_output_frame_idx_ = curr_output_frame_idx;
+            }
+          }
+        }
+        output_rate_mutex_.unlock();
+        if (throttle_curr_frame) continue;
+
+        ros_cam_info_.width = cam_params_.image_width / cam_sensor_scaling_rate_ / cam_binning_rate_;
+        ros_cam_info_.height = cam_params_.image_height / cam_sensor_scaling_rate_ / cam_binning_rate_;
 
         // Copy pixel content from internal frame buffer to ROS image
         // TODO: 9 make ros_image_.data (std::vector) use cam_buffer_ (char*) as underlying buffer, without copy; alternatively after override reallocateCamBuffer() by allocating memory to ros_image_.data, and setting that as internal camera buffer with is_SetAllocatedImageMem (complication is that vector's buffer need to be mlock()-ed)
@@ -1013,7 +1069,8 @@ void UEyeCamNodelet::frameGrabLoop() {
         ros_image_.header.frame_id = ros_cam_info_.header.frame_id;
 
         if (!frame_grab_alive_ || !ros::ok()) break;
-        ros_cam_pub_.publish(ros_image_, ros_cam_info_);
+
+        ros_cam_pub_.publish(ros_image_, ros_cam_info_); 
       }
     }
 
