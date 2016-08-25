@@ -2,6 +2,13 @@
 Changelog for package ueye_cam
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
+1.0.15 (2016-08-25)
+-------------------
+* recover + update from failure in setColorMode
+* extended color modes (10, 12, 16 bit per channel)
+* added timeout topic for better debugging of frame timeouts
+* Contributors: Anqi Xu, Dominik Klein
+
 1.0.14 (2016-05-26)
 -------------------
 * now attempting to link against 32-bit ARMHF IDS libs on ARM64 arch
